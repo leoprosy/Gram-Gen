@@ -1,0 +1,10 @@
+__pycache__/
+/.venv
+/data
+/build
+/dist
+/node_modules
+/src-tauri/target
+/src-tauri/binaries
+/src-tauri/gen
+*.spec

@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="fr" data-theme="{{ theme }}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gram-Gen</title>
+<link rel="icon" href="/static/logo.svg">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div id="app"></div>
+<div id="toast" role="status"></div>
+<script>window.TYPES = {{ types|tojson }}; window.CONSIGNES = {{ consignes|tojson }};</script>
+<script type="module" src="/static/app.js"></script>
+</body>
+</html>

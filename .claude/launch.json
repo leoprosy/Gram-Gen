@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "gramgen",
+      "runtimeExecutable": ".venv/Scripts/python.exe",
+      "runtimeArgs": ["launcher.py"],
+      "port": 5200,
+      "env": { "GRAMGEN_SIDECAR": "1", "GRAMGEN_PORT": "5200" }
+    }
+  ]
+}
