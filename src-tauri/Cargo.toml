@@ -1,6 +1,6 @@
 [package]
 name = "gram-gen"
-version = "0.1.0"
+version = "0.2.0"
 description = "Gram-Gen — grammaire anglaise et espagnole par concepts"
 authors = ["Leo"]
 license = "GPL-3.0-or-later"

@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-restart-app"
+description = "Redémarrer Gram-Gen après une mise à jour."
+commands.allow = ["restart_app"]

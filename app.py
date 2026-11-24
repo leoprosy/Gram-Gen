@@ -3,6 +3,7 @@
 import json
 import random
 import sqlite3
+import webbrowser
 from datetime import date, timedelta
 
 from flask import Flask, abort, g, jsonify, render_template, request
@@ -11,6 +12,7 @@ import contenu
 import correction
 import db
 import moteur
+import updater
 from contenu import Invalide
 
 app = Flask(__name__, template_folder=str(db.CODE_DIR / "templates"), static_folder=str(db.CODE_DIR / "static"))
@@ -520,7 +522,7 @@ def stats():
 
 @app.get("/api/reglages")
 def lire_reglages():
-    return jsonify(**reglages(), dossier=str(db.data_dir()),
+    return jsonify(**reglages(), version=updater.version_locale(), dossier=str(db.data_dir()),
                    sauvegardes=len(list((db.data_dir() / "sauvegardes").glob("gramgen-*.db"))))
 
 
@@ -532,6 +534,26 @@ def ecrire_reglages():
         con().execute("INSERT OR REPLACE INTO reglage VALUES (?,?)", (cle, json.dumps(valeur)))
     con().commit()
     return jsonify(reglages())
+
+
+# ── Mise à jour ──────────────────────────────────────────────
+
+@app.get("/api/maj")
+def maj_verifier():
+    return jsonify(updater.verifier())
+
+
+@app.post("/api/maj")
+def maj_telecharger():
+    corps()     # exige application/json, comme toute écriture
+    return jsonify(updater.telecharger())
+
+
+@app.post("/api/maj/installateur")
+def maj_installateur():
+    corps()
+    webbrowser.open(updater.PAGE_INSTALLATEUR)
+    return jsonify(ok=True)
 
 
 @app.get("/")

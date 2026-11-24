@@ -1,5 +1,6 @@
 // Écrans : accueil, bibliothèque, validation, statistiques, réglages.
 import { html, raw, ico, kbd, pill, pl, barre, barreHaut, seg, select, enonce, fiche, ilya, dans, duree, TYPES, STATUTS, api, toast, montrer, aller, router, routes, globales, ctrl, saisie, surBouton } from './base.js';
+import { surveiller, aFaire, actsMaj, ligneMaj } from './maj.js';
 import { demarrer, ecran as ecranSeance } from './seance.js';
 import { panneau, choisirConcept, generer, importerFichier, nouveauConcept, chercher } from './panneau.js';
 
@@ -23,7 +24,7 @@ routes[''] = async () => {
   const commencer = () => demarrer('jour', { duree: minutes });
   const v = {
     acts: {
-      commencer, cible, rafale, ajouter: () => panneau({ apres: router }), minutes: (x) => { minutes = +x; dessiner(); },
+      ...actsMaj, commencer, cible, rafale, ajouter: () => panneau({ apres: router }), minutes: (x) => { minutes = +x; dessiner(); },
       faible: (el) => demarrer('cible', { concept: el.dataset.code }), generer: (el) => generation(el.dataset.code), file: () => aller('#/validation'),
     },
     touche(e) {
@@ -61,7 +62,7 @@ routes[''] = async () => {
         ${d.faibles.length ? html`<div class="col g4">${d.faibles.map((c) => html`<button type="button" class="survol col g8" style="padding:12px;margin:0 -12px" data-act="faible" data-code="${c.code}" aria-label="Entraînement ciblé : ${c.titre}, maîtrise ${c.maitrise} %">
           <span class="row g8" style="width:100%">${pill(c.langue)}<span class="f1 fort tronque">${c.titre}</span><span class="cap num">${c.maitrise} %</span></span><span class="barre" aria-hidden="true"><span style="--v:${c.maitrise}%"></span></span></button>`)}</div>`
     : html`<p class="cap">Ils apparaîtront après la première séance.</p>`}</section>
-      ${(d.reservoirs.length > 0 || d.a_valider > 0) && html`<section class="carte col g16 up" style="--i:3"><h2 class="section">À traiter</h2><div class="col g8">
+      ${(d.reservoirs.length > 0 || d.a_valider > 0 || aFaire()) && html`<section class="carte col g16 up" style="--i:3"><h2 class="section">À traiter</h2><div class="col g8">${ligneMaj()}
         ${d.reservoirs.map((c) => html`<div class="bandeau orange mince">${ico('alerte')}<span class="f1"><b class="fort">${c.titre}</b> — ${c.non_vus ? `plus que ${pl(c.non_vus, 'exercice non vu', 'exercices non vus')}` : 'plus aucun exercice non vu'}</span><button type="button" class="btn f" style="color:var(--text)" data-act="generer" data-code="${c.code}">Générer</button></div>`)}
         ${d.a_valider > 0 && html`<button type="button" class="creux survol row g12" style="min-height:48px;padding:0 12px 0 16px;font-size:14px" data-act="file"><span class="f1">${pl(d.a_valider, 'exercice')} à valider</span><span class="row" style="color:var(--text-2)">${ico('droite')}</span></button>`}
       </div></section>`}
@@ -243,7 +244,7 @@ routes.reglages = async () => {
     toast('Réglage enregistré.');
   };
   const ligne = (titre, aide, controle) => html`<div class="reglage"><div class="col" style="flex:1 1 280px"><span style="font-weight:500">${titre}</span><span class="cap">${aide}</span></div>${controle}</div>`;
-  const v = { acts: { accents: regler('accents'), duree: regler('duree', Number), nouveaux: regler('nouveaux', Number), theme: regler('theme'), importer: () => importerFichier(() => {}) } };
+  const v = { acts: { ...actsMaj, accents: regler('accents'), duree: regler('duree', Number), nouveaux: regler('nouveaux', Number), theme: regler('theme'), importer: () => importerFichier(() => {}) } };
   montrer(v, html`${barreHaut('#/reglages')}<main class="page" style="max-width:768px;gap:24px"><h1 class="up">Réglages</h1>
     <section class="carte col g16 up" style="--i:1"><h2 class="section">Révision</h2>
       ${ligne('Accent espagnol oublié', 'En conjugaison, il compte toujours faux.', seg('accents', [['faux', 'Faux'], ['demi', 'Demi-faute']], r.accents, 'Accent oublié'))}
@@ -255,7 +256,11 @@ routes.reglages = async () => {
       ${ligne('Exporter toute la base', 'Concepts, exercices, tentatives et réglages, en un fichier JSON.', html`<a class="btn" href="/api/export" download>Exporter</a>`)}
       ${ligne('Copies de sécurité', 'Une par jour d\'utilisation, les 7 dernières sont gardées.', html`<span class="cap num">${pl(r.sauvegardes, 'copie')}</span>`)}
       <p class="cap">Dossier des données : <span class="mono">${r.dossier}</span></p></section>
+    <section class="carte col g16 up" style="--i:4"><h2 class="section">À propos</h2>
+      ${ligne(`Gram-Gen ${r.version}`, 'Le numéro de la dernière version est lu sur GitHub au démarrage ; rien n\'est envoyé.', html`<button type="button" class="btn" data-act="verifier">Vérifier les mises à jour</button>`)}
+      ${ligneMaj()}</section>
   </main>`, 'Réglages');
 };
 
 router();
+setTimeout(surveiller, 1500);

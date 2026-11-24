@@ -1,0 +1,7 @@
+{
+  "identifier": "restart",
+  "description": "L'interface locale peut redémarrer l'application, rien d'autre",
+  "windows": ["main"],
+  "remote": { "urls": ["http://127.0.0.1:*"] },
+  "permissions": ["allow-restart-app"]
+}

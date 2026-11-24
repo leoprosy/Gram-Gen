@@ -3,21 +3,16 @@
 import json
 import os
 import sqlite3
-import sys
 from contextlib import closing
 from datetime import date
 from pathlib import Path
 
-CODE_DIR = Path(getattr(sys, "_MEIPASS", Path(__file__).parent)).resolve()
+CODE_DIR = Path(__file__).resolve().parent
 
 
 def data_dir() -> Path:
-    """Hors du dossier de l'app une fois packagée : la base survit aux mises à jour."""
-    if os.environ.get("GRAMGEN_DATA"):
-        return Path(os.environ["GRAMGEN_DATA"])
-    if getattr(sys, "frozen", False):
-        return Path(os.environ.get("APPDATA") or Path.home()) / "GramGen"
-    return CODE_DIR / "data"
+    """%APPDATA%/GramGen une fois packagée (fixé par launcher.py) : la base survit aux mises à jour."""
+    return Path(os.environ.get("GRAMGEN_DATA") or CODE_DIR / "data")
 
 
 def connecter() -> sqlite3.Connection:

@@ -8,3 +8,4 @@ __pycache__/
 /src-tauri/binaries
 /src-tauri/gen
 *.spec
+!gramgen-server.spec

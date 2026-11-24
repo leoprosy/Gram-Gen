@@ -46,13 +46,12 @@ jobs:
           if ($LASTEXITCODE) { exit 1 }
           npm ci
 
-      # Tests, sidecar PyInstaller, puis Tauri : la même recette qu'en local.
+      # Tests, contrat de runtime, code, sidecar vérifié, Tauri : la même recette qu'en local.
       - name: Construire
         shell: pwsh
         run: ./build.ps1
 
-      # L'exe neuf doit démarrer et servir le contenu qu'il embarque. Un fichier
-      # ou un module oublié échoue ici, pas chez l'utilisateur.
+      # Démarrage réel : déploiement du code embarqué, puis serveur.
       - name: Démarrer le serveur compilé
         shell: pwsh
         env:
@@ -71,8 +70,28 @@ jobs:
           Write-Host "$(@($concepts).Count) concepts, page $page, police $police"
           Stop-Process -Name gramgen-server -Force
 
+      # Le cas que crée l'updater : ce nouveau code sur l'exe que les utilisateurs
+      # ont déjà. Code 3 : nouvel installateur exigé, voulu après un --bump.
+      - name: Vérifier la compatibilité avec l'exe publié
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $assets = gh release view --json assets --jq '.assets[].name'
+          if ($LASTEXITCODE) { throw "Release précédente illisible" }
+          if ($assets -notcontains "gramgen-server.exe") { Write-Host "::notice::Aucun exe publié : contrôle sauté."; exit 0 }
+          gh release download --pattern gramgen-server.exe --dir precedent
+          if ($LASTEXITCODE) { throw "Téléchargement de l'exe publié impossible" }
+          precedent/gramgen-server.exe --self-check --app-dir build/app_bundle
+          if ($LASTEXITCODE -eq 3) { Write-Host "::notice::Nouvel installateur exigé pour cette version."; exit 0 }
+          if ($LASTEXITCODE) { throw "Le nouveau code ne tourne pas sur l'exe publié" }
+
+      # app.zip et version.json : lus par l'updater. gramgen-server.exe : lu par le
+      # contrôle de compatibilité de la release suivante.
       - name: Publier la release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" --verify-tag --title "$GITHUB_REF_NAME" --generate-notes src-tauri/target/release/bundle/nsis/*.exe
+        run: >-
+          gh release create "$GITHUB_REF_NAME" --verify-tag --title "$GITHUB_REF_NAME" --generate-notes
+          src-tauri/target/release/bundle/nsis/*.exe build/app.zip build/app_bundle/version.json dist/gramgen-server.exe
