@@ -2,7 +2,7 @@
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Gram-Gen",
   "version": "0.1.0",
-  "identifier": "fr.gramgen.app",
+  "identifier": "fr.gramgen.desktop",
   "build": {
     "frontendDist": "../dist-tauri",
     "devUrl": "http://127.0.0.1:5200",

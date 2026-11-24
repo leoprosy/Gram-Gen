@@ -3,6 +3,11 @@
 Réviser la grammaire anglaise et espagnole par **concepts** : c'est la règle qui revient, jamais la même phrase.
 Application de bureau hors ligne, sans clé d'API.
 
+## Installer (Windows)
+
+Télécharger `Gram-Gen_x.y.z_x64-setup.exe` depuis la [page des releases](https://github.com/leoprosy/Gram-Gen/releases/latest).
+L'installateur n'est pas signé : Windows peut afficher un avertissement SmartScreen.
+
 ## Lancer en développement
 
 ```powershell

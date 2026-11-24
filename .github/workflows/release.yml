@@ -1,0 +1,78 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  windows-installer:
+    name: Installateur Windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Le nom de l'installateur vient de tauri.conf.json : un tag qui ne lui
+      # correspond pas publierait un fichier au mauvais numéro.
+      - name: Vérifier que le tag correspond à la version
+        shell: pwsh
+        run: |
+          $version = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+          if ("v$version" -ne "${{ github.ref_name }}") { throw "Tag ${{ github.ref_name }}, mais tauri.conf.json annonce $version" }
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Installer les dépendances
+        shell: pwsh
+        run: |
+          python -m venv .venv
+          .venv\Scripts\python.exe -m pip install -r requirements.txt
+          if ($LASTEXITCODE) { exit 1 }
+          npm ci
+
+      # Tests, sidecar PyInstaller, puis Tauri : la même recette qu'en local.
+      - name: Construire
+        shell: pwsh
+        run: ./build.ps1
+
+      # L'exe neuf doit démarrer et servir le contenu qu'il embarque. Un fichier
+      # ou un module oublié échoue ici, pas chez l'utilisateur.
+      - name: Démarrer le serveur compilé
+        shell: pwsh
+        env:
+          GRAMGEN_SIDECAR: '1'
+          GRAMGEN_PORT: '5299'
+          GRAMGEN_DATA: ${{ runner.temp }}\gramgen
+        run: |
+          Start-Process dist\gramgen-server.exe -NoNewWindow
+          $concepts = $null
+          foreach ($i in 1..30) {
+            try { $concepts = Invoke-RestMethod http://127.0.0.1:5299/api/concepts; break } catch { Start-Sleep 1 }
+          }
+          if (@($concepts).Count -lt 24) { throw "Contenu absent du serveur compilé" }
+          $page = (Invoke-WebRequest http://127.0.0.1:5299/).StatusCode
+          $police = (Invoke-WebRequest http://127.0.0.1:5299/static/fonts/Inter-Regular.ttf).StatusCode
+          Write-Host "$(@($concepts).Count) concepts, page $page, police $police"
+          Stop-Process -Name gramgen-server -Force
+
+      - name: Publier la release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" --verify-tag --title "$GITHUB_REF_NAME" --generate-notes src-tauri/target/release/bundle/nsis/*.exe
