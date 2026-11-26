@@ -144,7 +144,7 @@ function dessiner() {
     ${S.termine ? ecranFin() : html`
     <main class="scene"><section class="carte lg col g24 up">
       <div class="col g12">
-        <div class="meta">${pill(ex().langue)}<span>·</span><span>${ex().concept}</span><span>·</span><span>${ex().type_nom}</span></div>
+        <div class="meta">${pill(ex().langue)}</div>
         <div class="col g4"><p class="cap">${ex().consigne}</p><p class="enonce" id="enonce" lang="${ex().type === 'theme' ? 'fr' : ex().langue}">${enonce(ex().enonce)}</p></div>
       </div>
       ${S.verdict ? verdict() : zoneSaisie()}
@@ -186,9 +186,10 @@ const lettres = ([donne, attendu]) => [...attendu].map((c, i) => c === [...donne
 
 function verdict() {
   const v = S.verdict, r = v.resultat;
-  const explication = v.explication && html`<p class="cap" style="color:var(--text)">${v.explication}</p>`;
+  const explication = html`${v.ia && html`<p class="cap" style="color:var(--text)"><b class="fort">Claude :</b> ${v.ia.commentaire}</p>`}${v.explication && html`<p class="cap" style="color:var(--text)">${v.explication}</p>`}`;
+  const titre = { maladroit: 'Juste, mais maladroit', faute_ailleurs: 'Point visé réussi, faute ailleurs' }[v.ia?.verdict] || (r === 'juste' ? 'Juste' : 'Juste, avec aide');
   if (r === 'juste' || r === 'aide') return html`<div class="bandeau ${r === 'juste' ? 'juste' : 'orange'} up" role="status">${ico('juste', 20)}<div class="col g4 f1">
-    <p class="titre">${r === 'juste' ? 'Juste' : 'Juste, avec aide'}</p><p lang="${ex().langue}">« ${v.donne} »</p>
+    <p class="titre">${titre}</p><p lang="${ex().langue}">« ${v.donne} »</p>
     ${v.coquille && html`<p class="cap">Coquille signalée : <del>${v.coquille.donne}</del> → <b>${v.coquille.attendu}</b></p>`}${explication}</div></div>`;
   const plat = (s) => s.normalize('NFD').replace(/\p{M}/gu, '');
   if (r === 'accent') {
@@ -202,7 +203,7 @@ function verdict() {
   }
   const verif = r === 'averifier';
   return html`<div class="bandeau ${verif ? 'orange' : 'faux'} up" role="status">${ico(verif ? 'alerte' : 'faux', 20)}<div class="col g12 f1">
-      <div><p class="titre">${verif ? 'À vérifier' : 'Incorrect'}</p>${verif && html`<p class="cap">Réponse absente de la liste. Comparer avec la référence, puis trancher.</p>`}</div>
+      <div><p class="titre">${verif ? 'À vérifier' : 'Incorrect'}</p>${verif && html`<p class="cap">Réponse absente de la liste. Comparer avec la référence, puis trancher.${v.ia_erreur ? ` (Claude indisponible : ${v.ia_erreur})` : ''}</p>`}</div>
       <div><span class="cap">Ta réponse</span><p style="font-size:17px" lang="${ex().langue}">${v.donne.trim() ? mots(v.diff_donne, (m) => html`<del>${m}</del>`) : '—'}</p></div>
       <div><span class="cap">Réponse attendue</span><p style="font-size:17px" lang="${ex().langue}">${mots(v.diff_attendu, (m) => html`<b class="fort">${m}</b>`)}</p></div>
       ${v.autres.length > 0 && html`<details style="font-size:14px"><summary class="lien row g4" style="display:inline-flex">${pl(v.autres.length, 'autre réponse acceptée', 'autres réponses acceptées')}<span class="chev row">${ico('bas')}</span></summary><ul style="list-style:disc;padding-left:20px;margin-top:4px" lang="${ex().langue}">${v.autres.map((a) => html`<li>${a}</li>`)}</ul></details>`}

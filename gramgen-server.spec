@@ -18,7 +18,7 @@ a = Analysis(
     ["launcher.py"],
     datas=[("build/app_bundle", "app_bundle"), ("runtime.json", ".")],
     hiddenimports=caches,
-    excludes=["app", "contenu", "correction", "db", "moteur", "updater"],
+    excludes=["app", "contenu", "correction", "db", "ia", "mcp_server", "moteur", "updater"],
 )
 pyz = PYZ(a.pure)
 exe = EXE(pyz, a.scripts, a.binaries, a.datas, [], name="gramgen-server", console=True, upx=False)
