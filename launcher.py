@@ -1,5 +1,5 @@
 """
-Point d'entrée : `python launcher.py` (navigateur) ou sidecar Tauri (GRAMGEN_SIDECAR=1).
+Point d'entrée : `python launcher.py` (navigateur), sidecar Tauri (GRAMGEN_SIDECAR=1) ou serveur MCP (--mcp).
 
 Dans l'exécutable, ce fichier est figé : il met le code à jour puis le charge depuis <données>/app.
 Son contrat avec ce code : `updater.deployer`, `updater.appliquer`, `db.initialiser` et `app.app`.
@@ -73,7 +73,7 @@ def auto_verification(dossier: Path) -> int:
     return 0
 
 
-def preparer():
+def preparer(maj=True):
     """Dans l'exécutable : met le code à jour et le charge, avec repli sur le code embarqué."""
     donnees = Path(os.environ.get("GRAMGEN_DATA") or Path(os.environ.get("APPDATA") or Path.home()) / "GramGen")
     donnees.mkdir(parents=True, exist_ok=True)
@@ -82,7 +82,8 @@ def preparer():
     live = donnees / "app"
     choisir(EMBARQUE)
     updater = import_module("updater")
-    for etape in (lambda: updater.deployer(EMBARQUE, live), lambda: updater.appliquer(live, runtime())):
+    # Le serveur MCP tourne à côté de l'app ouverte : il ne touche pas au dossier du code.
+    for etape in (lambda: updater.deployer(EMBARQUE, live), lambda: updater.appliquer(live, runtime()))[:2 if maj else 0]:
         try:
             etape()
         except OSError:
@@ -110,6 +111,10 @@ def main():
     if "--self-check" in sys.argv:
         i = sys.argv.index("--app-dir") + 1 if "--app-dir" in sys.argv else 0
         sys.exit(auto_verification(Path(sys.argv[i]).resolve() if i else EMBARQUE))
+    if "--mcp" in sys.argv:
+        canal, sys.stdout = sys.stdout, sys.stderr     # stdout est le canal JSON-RPC
+        app = preparer(maj=False) if GELE else charger(EMBARQUE)
+        sys.exit(import_module("mcp_server").servir(app, sys.stdin.buffer, canal.buffer))
     app = preparer() if GELE else charger(EMBARQUE)
     port = int(os.environ.get("GRAMGEN_PORT") or port_libre())
     # La coque Tauri lit cette ligne pour connaître le port.

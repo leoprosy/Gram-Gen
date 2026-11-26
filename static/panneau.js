@@ -60,9 +60,19 @@ export async function choisirConcept(titre, sous, suite) {
   });
 }
 
-/** Générer : prépare le prompt, puis importe la réponse de l'assistant. Aucun appel IA dans le MVP. */
-export function generer(concept, apres) {
-  let nombre = 10, difficulte = 2, types = new Set(['trous', 'qcm', 'choix', 'theme']), prompt = null, colle = '', erreur = '';
+/** Générer : directement par Claude si une clé est réglée, sinon prompt à copier puis réponse à coller. */
+export async function generer(concept, apres) {
+  const { ia } = await api('GET', 'reglages');
+  let nombre = 10, difficulte = 2, types = new Set(['trous', 'qcm', 'choix', 'theme']), prompt = null, colle = '', erreur = '', attente = false;
+  const direct = async () => {
+    if (!types.size || attente) return;
+    attente = true; erreur = ''; f.maj();
+    try {
+      const b = await api('POST', `concepts/${encodeURIComponent(concept.code)}/generer`, { nombre, difficulte, types: [...types] });
+      f.fermer();
+      bilanImport(b, apres);
+    } catch (e) { attente = false; erreur = e.message; f.maj(); }
+  };
   const copier = async () => {
     if (!types.size) return;
     prompt = (await api('POST', `concepts/${encodeURIComponent(concept.code)}/prompt`, { nombre, difficulte, types: [...types] })).prompt;
@@ -82,10 +92,10 @@ export function generer(concept, apres) {
   const f = fenetre({
     nom: 'Générer des exercices',
     acts: {
-      fermer: () => f.fermer(), copier, importer, nombre: (v) => { nombre = +v; }, difficulte: (v) => { difficulte = +v; },
+      fermer: () => f.fermer(), copier, importer, direct, nombre: (v) => { nombre = +v; }, difficulte: (v) => { difficulte = +v; },
       type: (v, el) => { types[v ? 'add' : 'delete'](el.value); f.maj(); }, colle: (v) => { colle = v; f.el.querySelector('#importer').disabled = !v.trim(); }, retour: () => { prompt = null; f.maj(); },
     },
-    touche: (e) => { if (e.key === 'Enter' && !prompt && !e.target.closest('button')) { copier(); return true; } if (prompt && e.ctrlKey && e.key === 'Enter' && colle.trim()) { importer(); return true; } },
+    touche: (e) => { if (e.key === 'Enter' && !prompt && !e.target.closest('button')) { (ia ? direct : copier)(); return true; } if (prompt && e.ctrlKey && e.key === 'Enter' && colle.trim()) { importer(); return true; } },
     rendu: () => html`<div class="row g12" style="align-items:flex-start"><div class="f1 col g2"><h2 class="h1">Générer des exercices</h2><span class="row g8 cap">${pill(concept.langue)}${concept.titre}</span></div>${fermerX}</div>
       ${prompt ? html`
         <div class="col g16" style="overflow-y:auto;margin:-4px;padding:4px">
@@ -98,7 +108,10 @@ export function generer(concept, apres) {
         <div class="col g8"><span class="lab">Nombre</span>${seg('nombre', [[5, '5'], [10, '10'], [20, '20']], nombre, 'Nombre')}</div>
         <fieldset class="col g8"><legend class="lab" style="padding-bottom:8px">Types</legend><div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px 16px">${Object.entries(TYPES).map(([k, l]) => html`<label class="coche"><input type="checkbox" id="t-${k}" value="${k}" data-change="type" ${raw(types.has(k) ? 'checked' : '')}>${l}</label>`)}</div></fieldset>
         <div class="col g8"><span class="lab">Difficulté</span>${seg('difficulte', [[1, '1'], [2, '2'], [3, '3']], difficulte, 'Difficulté')}</div>
-        <div class="row g8" style="justify-content:flex-end"><button type="button" class="btn f" data-act="fermer">Annuler${kbd('Échap')}</button><button type="button" class="btn p" data-focus data-act="copier" ${raw(types.size ? '' : 'disabled')}>Copier le prompt${kbd('Entrée')}</button></div>`}`,
+        ${erreur && html`<span class="erreur" role="alert">${erreur}</span>`}
+        <div class="row g8" style="justify-content:flex-end"><button type="button" class="btn f" data-act="fermer">Annuler${kbd('Échap')}</button>${ia
+          ? html`<button type="button" class="btn" data-act="copier" ${raw(types.size ? '' : 'disabled')}>Copier le prompt</button><button type="button" class="btn p" data-focus data-act="direct" ${raw(types.size && !attente ? '' : 'disabled')}>${attente ? 'Génération en cours…' : 'Générer avec Claude'}${kbd('Entrée')}</button>`
+          : html`<button type="button" class="btn p" data-focus data-act="copier" ${raw(types.size ? '' : 'disabled')}>Copier le prompt${kbd('Entrée')}</button>`}</div>`}`,
   });
 }
 

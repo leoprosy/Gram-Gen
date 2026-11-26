@@ -244,12 +244,15 @@ routes.reglages = async () => {
     toast('Réglage enregistré.');
   };
   const ligne = (titre, aide, controle) => html`<div class="reglage"><div class="col" style="flex:1 1 280px"><span style="font-weight:500">${titre}</span><span class="cap">${aide}</span></div>${controle}</div>`;
-  const v = { acts: { ...actsMaj, accents: regler('accents'), duree: regler('duree', Number), nouveaux: regler('nouveaux', Number), theme: regler('theme'), importer: () => importerFichier(() => {}) } };
+  const cle = async (x) => { await api('PATCH', 'reglages', { cle_api: x }); toast(x.trim() ? 'Clé enregistrée.' : 'Clé effacée.'); router(); };
+  const v = { acts: { ...actsMaj, cle, accents: regler('accents'), duree: regler('duree', Number), nouveaux: regler('nouveaux', Number), theme: regler('theme'), importer: () => importerFichier(() => {}) } };
   montrer(v, html`${barreHaut('#/reglages')}<main class="page" style="max-width:768px;gap:24px"><h1 class="up">Réglages</h1>
     <section class="carte col g16 up" style="--i:1"><h2 class="section">Révision</h2>
       ${ligne('Accent espagnol oublié', 'En conjugaison, il compte toujours faux.', seg('accents', [['faux', 'Faux'], ['demi', 'Demi-faute']], r.accents, 'Accent oublié'))}
       ${ligne('Durée de séance', 'Environ 40 secondes par exercice.', seg('duree', [[10, '10 min'], [15, '15 min'], [25, '25 min']], r.duree, 'Durée de séance'))}
       ${ligne('Nouveaux concepts par jour', 'Ajoutés après les concepts à revoir.', seg('nouveaux', [0, 1, 2, 3, 4, 5].map((n) => [n, n]), r.nouveaux, 'Nouveaux concepts par jour'))}</section>
+    <section class="carte col g16 up" style="--i:2"><h2 class="section">Claude</h2>
+      ${ligne("Clé d'API Anthropic", r.ia ? 'Active : les réponses libres non reconnues sont jugées par Claude, et « Générer » écrit les exercices lui-même.' : 'Facultative. Sans clé, tu tranches toi-même les réponses « à vérifier ».', html`<input type="password" class="champ" style="max-width:260px" data-change="cle" aria-label="Clé d'API Anthropic" placeholder="${r.cle_api ? '•••••••• (enregistrée)' : 'sk-ant-…'}" autocomplete="off">`)}</section>
     <section class="carte col g16 up" style="--i:2"><h2 class="section">Apparence</h2>${ligne('Thème', '', seg('theme', [['auto', 'Système'], ['clair', 'Clair'], ['sombre', 'Sombre']], r.theme, 'Thème'))}</section>
     <section class="carte col g16 up" style="--i:3"><h2 class="section">Données</h2>
       ${ligne('Importer des exercices', 'Fichier JSON. Les doublons sont rejetés et signalés.', html`<button type="button" class="btn" data-act="importer">${ico('importer')}Importer</button>`)}

@@ -11,6 +11,7 @@ from flask import Flask, abort, g, jsonify, render_template, request
 import contenu
 import correction
 import db
+import ia
 import moteur
 import updater
 from contenu import Invalide
@@ -21,7 +22,7 @@ app.json.ensure_ascii = False
 app.json.sort_keys = False
 app.jinja_env.policies["json.dumps_kwargs"] = {"sort_keys": False}
 
-REGLAGES = {"accents": "faux", "duree": 15, "nouveaux": 2, "theme": "auto"}
+REGLAGES = {"accents": "faux", "duree": 15, "nouveaux": 2, "theme": "auto", "cle_api": ""}
 VALEURS = {"accents": ("faux", "demi"), "duree": (10, 15, 25), "nouveaux": tuple(range(6)),
            "theme": ("auto", "clair", "sombre")}
 
@@ -139,7 +140,7 @@ def vue_seance(id_, concepts) -> dict:
     ex = exercice_ou_404(id_)
     c = concepts[ex["concepts"][0]]
     v = {k: ex[k] for k in ("id", "concepts", "type", "consigne", "enonce", "indice")}
-    v.update(langue=c["langue"], concept=c["titre"], type_nom=contenu.TYPES[ex["type"]],
+    v.update(langue=c["langue"], concept=c["titre"],
              blancs=len(ex["reponses"]) if ex["type"] == "trous" else 1)
     if ex["type"] in ("qcm", "choix"):
         v["options"] = random.sample([ex["reponses"][0], *ex["distracteurs"]], 1 + len(ex["distracteurs"]))
@@ -261,6 +262,8 @@ def repondre():
     langue = concept["langue"]
     v = correction.corriger(ex, donnees, langue)
     v.update(explication=ex["explication"], regle={"titre": concept["titre"], "fiche": concept["fiche"]})
+    if v["resultat"] == "averifier" and decision is None:
+        juger(v, ex, dict(concept), donnees)
     if v["resultat"] == "averifier":
         if decision not in ("juste", "faux"):
             return jsonify(v)
@@ -274,9 +277,26 @@ def repondre():
     v["tentative"] = con().execute(
         "INSERT INTO tentative (exercice, date, mode, reponse, resultat, code_erreur, duree) VALUES (?,?,?,?,?,?,?)",
         (ex["id"], contenu.maintenant(), mode, json.dumps(donnees, ensure_ascii=False), v["resultat"],
-         code_erreur(v["resultat"], ex["type"]), duree)).lastrowid
+         v.get("code_erreur") or code_erreur(v["resultat"], ex["type"]), duree)).lastrowid
     apres_tentative(ex)
     return jsonify(v)
+
+
+def juger(v, ex, concept, donnees):
+    """Étage 3. Sans clé ou hors ligne, le verdict reste « à vérifier » et l'élève tranche."""
+    try:
+        j = ia.juger(reglages()["cle_api"], ex, concept, " · ".join(donnees))
+    except ia.Indisponible as e:
+        v["ia_erreur"] = str(e) if ia.disponible(reglages()["cle_api"]) else None
+        return
+    v["ia"] = {"verdict": j["verdict"], "commentaire": j["commentaire"]}
+    # Point visé réussi mais faute ailleurs : compté comme « avec aide », pas comme une faute sur le concept.
+    v["resultat"] = {"juste": "juste", "maladroit": "juste", "faute_point": "faux", "faute_ailleurs": "aide"}[j["verdict"]]
+    if j["code_erreur"] != "aucun":
+        v["code_erreur"] = j["code_erreur"]
+    if j["verdict"] == "juste":
+        # La variante rejoint les références : la même réponse ne coûtera plus d'appel.
+        accepter_variante(ex, donnees, concept["langue"])
 
 
 def code_erreur(resultat, type_):
@@ -364,8 +384,7 @@ def modifier_concept(code):
     return jsonify(ok=True)
 
 
-@app.post("/api/concepts/<code>/prompt")
-def prompt(code):
+def texte_prompt(code):
     d = corps()
     c = con().execute("SELECT * FROM concept WHERE code=?", (code,)).fetchone() or abort(404)
     types = [t for t in contenu.TYPES if t in (d.get("types") or [])]
@@ -373,7 +392,25 @@ def prompt(code):
         raise Invalide("Choisir un nombre, au moins un type et une difficulté.")
     existants = [r["enonce"] for r in rows("SELECT enonce FROM exercice x WHERE EXISTS "
                                            "(SELECT 1 FROM json_each(x.concepts) WHERE value=?)", code)]
-    return jsonify(prompt=contenu.prompt(dict(c), existants, d["nombre"], types, d["difficulte"]))
+    return contenu.prompt(dict(c), existants, d["nombre"], types, d["difficulte"])
+
+
+@app.post("/api/concepts/<code>/prompt")
+def prompt(code):
+    return jsonify(prompt=texte_prompt(code))
+
+
+@app.post("/api/concepts/<code>/generer")
+def generer(code):
+    """Génération directe par Claude ; les exercices arrivent dans « À valider »."""
+    texte = texte_prompt(code)
+    try:
+        exercices = ia.generer(reglages()["cle_api"], texte)
+    except ia.Indisponible as e:
+        return jsonify(erreur=str(e)), 503
+    bilan = contenu.importer(con(), exercices, "ia")
+    con().commit()
+    return jsonify(bilan)
 
 
 @app.get("/api/exercices")
@@ -451,7 +488,7 @@ def supprimer_exercice(id_):
 def importer():
     d = corps()
     source = d.get("source", "import")
-    if source not in ("import", "ia"):
+    if source not in ("import", "ia", "mcp"):
         raise Invalide("Source inconnue.")
     bilan = contenu.importer(con(), d.get("donnees"), source)
     con().commit()
@@ -464,6 +501,7 @@ def exporter():
               "etats": "etat_concept", "reglages": "reglage"}
     out = {cle: [dict(r) for r in rows(f"SELECT * FROM {t}")] for cle, t in tables.items()}
     out["exercices"] = [contenu.ligne(e) for e in out["exercices"]]
+    out["reglages"] = [r for r in out["reglages"] if r["cle"] != "cle_api"]   # la clé ne quitte pas la machine
     for c in out["concepts"]:
         c["voisins"] = json.loads(c["voisins"])
     rep = jsonify(out)
@@ -522,18 +560,22 @@ def stats():
 
 @app.get("/api/reglages")
 def lire_reglages():
-    return jsonify(**reglages(), version=updater.version_locale(), dossier=str(db.data_dir()),
+    r = reglages()
+    cle = r.pop("cle_api")
+    return jsonify(**r, ia=ia.disponible(cle), cle_api=bool(cle), version=updater.version_locale(), dossier=str(db.data_dir()),
                    sauvegardes=len(list((db.data_dir() / "sauvegardes").glob("gramgen-*.db"))))
 
 
 @app.patch("/api/reglages")
 def ecrire_reglages():
     for cle, valeur in corps().items():
-        if cle not in VALEURS or valeur not in VALEURS[cle]:
+        if cle == "cle_api" and isinstance(valeur, str) and len(valeur) < 300:
+            valeur = valeur.strip()
+        elif cle not in VALEURS or valeur not in VALEURS[cle]:
             raise Invalide(f"Réglage invalide : {cle}.")
         con().execute("INSERT OR REPLACE INTO reglage VALUES (?,?)", (cle, json.dumps(valeur)))
     con().commit()
-    return jsonify(reglages())
+    return lire_reglages()
 
 
 # ── Mise à jour ──────────────────────────────────────────────

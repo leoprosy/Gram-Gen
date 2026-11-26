@@ -1,5 +1,6 @@
 """Boucle complète sur une base temporaire : importer → valider → réviser → mesurer."""
 
+import json
 import os
 import tempfile
 import time
@@ -13,6 +14,8 @@ import app as web
 import contenu
 import correction
 import db
+import ia
+import mcp_server
 
 
 class Api(unittest.TestCase):
@@ -20,6 +23,7 @@ class Api(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.env = mock.patch.dict(os.environ, GRAMGEN_DATA=self.tmp.name)
         self.env.start()
+        os.environ.pop("ANTHROPIC_API_KEY", None)     # jamais d'appel réel en test (restauré par env.stop)
         db.initialiser()
         self.c = web.app.test_client()
 
@@ -148,6 +152,64 @@ class Api(unittest.TestCase):
         self.assertEqual(self.c.patch("/api/reglages", json={"accents": "x"}).status_code, 400)
         p = self.post("/api/concepts/es.depuis/prompt", nombre=10, types=["theme"], difficulte=2).json["prompt"]
         self.assertIn("es.depuis", p)
+
+
+    def test_jugement_ia(self):
+        self.c.patch("/api/reglages", json={"cle_api": " sk-test "})
+        r = self.c.get("/api/reglages").json
+        self.assertTrue(r["ia"] and r["cle_api"] is True)                            # la clé ne revient jamais
+        self.assertNotIn("sk-test", self.c.get("/api/export").get_data(as_text=True))
+        ex = next(e for e in self.c.get("/api/exercices").json if e["type"] == "theme")
+        d = dict(exercice=ex["id"], mode="jour", reponse=["Une autre version"])
+        juste = {"verdict": "juste", "code_erreur": "aucun", "commentaire": "Correct."}
+        with mock.patch.object(ia, "juger", return_value=juste) as j:
+            self.assertEqual(self.post("/api/repondre", **d).json["resultat"], "juste")
+            self.assertEqual(self.post("/api/repondre", **d).json["resultat"], "juste")   # variante apprise
+            self.assertEqual(j.call_count, 1)
+            self.assertEqual(j.call_args.args[0], "sk-test")
+        d["reponse"] = ["Encore autre chose"]
+        ailleurs = {"verdict": "faute_ailleurs", "code_erreur": "orthographe", "commentaire": "Coquille."}
+        with mock.patch.object(ia, "juger", return_value=ailleurs):
+            v = self.post("/api/repondre", **d).json
+        self.assertEqual((v["resultat"], v["ia"]["verdict"]), ("aide", "faute_ailleurs"))
+        with mock.patch.object(ia, "juger", side_effect=ia.Indisponible("Pas de connexion.")):
+            v = self.post("/api/repondre", **d).json
+        self.assertEqual((v["resultat"], v["ia_erreur"]), ("averifier", "Pas de connexion."))
+        self.c.patch("/api/reglages", json={"cle_api": ""})
+        v = self.post("/api/repondre", **d).json                                   # sans clé : aucun appel
+        self.assertEqual((v["resultat"], v.get("ia_erreur")), ("averifier", None))
+
+    def test_generation_directe(self):
+        lot = [{"concepts": ["es.depuis"], "type": "theme", "consigne": "", "enonce": "Il vit ici depuis deux ans.",
+                "reponses": ["Vive aquí desde hace dos años."], "distracteurs": [], "indice": "", "explication": "",
+                "difficulte": 2}]
+        corps = dict(nombre=5, types=["theme"], difficulte=2)
+        with mock.patch.object(ia, "generer", return_value=lot) as g:
+            b = self.post("/api/concepts/es.depuis/generer", **corps).json
+        self.assertIn("es.depuis", g.call_args.args[1])
+        self.assertEqual(b["ajoutes"], 1)
+        x = self.c.get("/api/exercices?statut=a_valider").json[0]
+        self.assertEqual((x["source"], x["enonce"]), ("ia", lot[0]["enonce"]))
+        self.assertEqual(self.post("/api/concepts/es.depuis/generer", **corps).status_code, 503)   # sans clé
+
+    def test_mcp(self):
+        table = mcp_server.outils(self.c)
+        appel = lambda nom, **a: mcp_server.traiter(
+            {"id": 1, "method": "tools/call", "params": {"name": nom, "arguments": a}}, table)["result"]
+        noms = [t["name"] for t in mcp_server.traiter({"id": 1, "method": "tools/list"}, table)["result"]["tools"]]
+        self.assertEqual(noms, ["lister_concepts", "creer_concept", "enonces", "ajouter_exercices",
+                                "etat_reservoirs", "statistiques"])
+        r = appel("creer_concept", langue="en", titre="Question tags", categorie="Syntaxe")
+        self.assertFalse(r["isError"], r)
+        r = appel("ajouter_exercices", exercices=[{"concepts": ["en.question-tags"], "type": "trous",
+                                                    "enonce": "It's cold, {{1}} it?", "reponses": ["isn't"]}, 3])
+        self.assertEqual(json.loads(r["content"][0]["text"])["ajoutes"], 1)
+        self.assertIn("en.question-tags", appel("etat_reservoirs")["content"][0]["text"])  # rien d'actif
+        self.assertEqual(json.loads(appel("enonces", concept="en.question-tags")["content"][0]["text"])[0]["statut"],
+                         "a_valider")
+        self.assertEqual(self.c.get("/api/exercices?statut=a_valider").json[0]["source"], "mcp")
+        self.assertTrue(appel("creer_concept", langue="xx", titre="", categorie="")["isError"])
+        self.assertIsNone(mcp_server.traiter({"method": "notifications/initialized"}, table))
 
 
 if __name__ == "__main__":
